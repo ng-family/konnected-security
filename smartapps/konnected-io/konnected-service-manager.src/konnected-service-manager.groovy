@@ -13,7 +13,7 @@
  *  for the specific language governing permissions and limitations under the License.
  *
  */
-public static String version() { return "2.2.3" }
+public static String version() { return "2.2.6" }
 
 definition(
   name:        "Konnected Service Manager",
@@ -37,7 +37,8 @@ mappings {
 preferences {
   page(name: "pageWelcome",       install: false, uninstall: true, content: "pageWelcome", nextPage: "pageConfiguration")
   page(name: "pageDiscovery",     install: false, content: "pageDiscovery" )
-  page(name: "pageConfiguration", install: true, content: "pageConfiguration")
+  page(name: "pageConfiguration")
+  page(name: "pageSelectHwType")
 }
 
 def installed() {
@@ -161,29 +162,21 @@ def pageDiscovery() {
 
 // Page : 3 : Configure things wired to the Konnected board
 def pageConfiguration(params) {
-  def setHwType = params?.hwType
-  if (setHwType) { state.hwType = setHwType }
-  state.hwType ? pageAssignPins() : pageSelectHwType()
+  settings.hwType ? pageAssignPins() : pageSelectHwType()
 }
 
 private pageSelectHwType() {
-  dynamicPage(name: "pageConfiguration") {
+  dynamicPage(name: "pageConfiguration", nextPage: "pageConfiguration", install: false) {
     section(title: "Which wiring hardware do you have?") {
-      href(
-        name:        "Konnected Alarm Panel",
-        title:       "Konnected Alarm Panel",
+      paragraph "Select \"Konnected\" if you are using Konnected branded hardware, otherwise select NodeMCU for the open source pin mapping."
+      input(
+        name:        "hwType",
+        type:        "enum",
+        title:       "Pin Mapping",
         description: "Tap to select",
-        page:        "pageConfiguration",
-        params:      [hwType: "alarmPanel"],
-        image:       "https://s3.us-east-2.amazonaws.com/konnected-io/konnected-alarm-panel-st-icon-t.jpg",
-      )
-      href(
-        name:        "NodeMCU Base",
-        title:       "NodeMCU Base",
-        description: "Tap to select",
-        page:        "pageConfiguration",
-        params:      [hwType: "nodemcu"],
-        image:       "https://s3.us-east-2.amazonaws.com/konnected-io/icon-nodemcu.jpg",
+        required: true,
+        submitOnChange: true,
+        options: ["Konnected","NodeMCU"]
       )
     }
   }
@@ -191,7 +184,7 @@ private pageSelectHwType() {
 
 private pageAssignPins() {
   def device = state.device
-  dynamicPage(name: "pageConfiguration") {
+  dynamicPage(name: "pageConfiguration", install: true) {
     section() {
       input(
         name: "name",
@@ -243,6 +236,19 @@ private pageAssignPins() {
           title: "Enable device discovery",
           required: false,
           defaultValue: true
+        )
+        input(
+          name: "regenerateToken",
+          type: "bool",
+          title: "Regenerate auth token",
+          required: false,
+          defaultValue: false
+        )
+        href(
+          name: "changePinMapping",
+          page: "pageSelectHwType",
+          title: "Change pin mapping",
+          description: null
         )
     }
   }
@@ -340,17 +346,21 @@ def childDeviceConfiguration() {
       def deviceChild = getChildDevice(deviceDNI)
       if (!deviceChild) {
         if (deviceType != "") {
+          log.debug "Creating new device: '$deviceLabel'"
           addChildDevice("konnected-io", deviceType, deviceDNI, device.hub, [ "label": deviceLabel ? deviceLabel : deviceType , "completedSetup": true ])
         }
       } else {
         // Change name if it's set here
         if (deviceChild.label != deviceLabel)
+          log.debug "Renaming '$deviceChild.label' to '$deviceLabel'"
           deviceChild.label = deviceLabel
 
         // Change Type, you will lose the history of events. delete and add back the child
         if (deviceChild.name != deviceType) {
+          log.debug "Deleting device '$deviceChild.label' - New device type '$deviceType' has changed from '$deviceChild.name'"
           deleteChildDevice(deviceDNI)
           if (deviceType != "") {
+            log.debug "Creating new device: '$deviceLabel'"
             addChildDevice("konnected-io", deviceType, deviceDNI, device.hub, [ "label": deviceLabel ? deviceLabel : deviceType , "completedSetup": true ])
           }
         }
@@ -363,7 +373,7 @@ def childDeviceConfiguration() {
   }
 
   deleteChildDevices.each {
-    log.debug "Deleting device $it.deviceNetworkId"
+    log.debug "Device was removed from Konnected configuration. Deleting: '$it.label'"
     deleteChildDevice(it.deviceNetworkId)
   }
 }
@@ -412,7 +422,10 @@ def devicePing() {
 
 //Device : update NodeMCU with token, url, sensors, actuators from SmartThings
 def updateSettingsOnDevice() {
-  if(!state.accessToken) { createAccessToken() }
+  if(!state.accessToken || settings.regenerateToken) {
+    app.updateSetting("regenerateToken", false)
+    createAccessToken()
+  }
 
   def device    = state.device
   def sensors   = []
@@ -490,7 +503,7 @@ void syncChildPinState(physicalgraph.device.HubResponse hubResponse) {
 }
 
 private Map pinMapping() {
-  if (state.hwType == "alarmPanel") {
+  if (settings.hwType == "Konnected") {
     return [
       1: "Zone 1",
       2: "Zone 2",
