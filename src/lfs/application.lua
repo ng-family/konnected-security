@@ -18,7 +18,10 @@ end
 
 -- initialize actuators
 for i, actuator in pairs(actuators) do
-  print("Heap:", node.heap(), "Initializing actuator pin:", actuator.pin)
+  local initialState = actuator.trigger == gpio.LOW and gpio.HIGH or gpio.LOW
+  print("Heap:", node.heap(), "Initializing actuator pin:", actuator.pin, "on:", actuator.trigger or gpio.HIGH, "off:", initialState)
+  gpio.write(actuator.pin, initialState)
+  gpio.mode(actuator.pin, gpio.OUTPUT)
   table.insert(actuatorGet, actuator)
 end
 
@@ -96,7 +99,7 @@ if endpoint_type == 'rest' then
 
 -- AWS IoT is used for the Konnected Cloud Connector or custom integrations build on AWS
 elseif endpoint_type == 'aws_iot' then
-  require("aws_iot")(settings)
+  require("aws_iot")()
 end
 
 
